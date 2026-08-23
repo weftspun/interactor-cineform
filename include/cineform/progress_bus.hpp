@@ -34,6 +34,12 @@ inline iox2_port_factory_pub_sub_h open_progress_service(iox2_node_h *node,
 	}
 	auto builder = iox2_service_builder_pub_sub(
 			iox2_node_service_builder(node, nullptr, iox2_cast_service_name_ptr(name)));
+	// THE SERVICE CAPS WHAT A SUBSCRIBER MAY ASK FOR, and iceoryx2's default is 2. Setting
+	// only the subscriber's depth is not enough: a subscriber requesting more than the
+	// service allows is not created at all, and the caller gets a null handle rather than a
+	// clamped buffer. Both ends open the service with the same value so that whichever end
+	// creates it, the cap is the same.
+	iox2_service_builder_pub_sub_set_subscriber_max_buffer_size(&builder, PROGRESS_BUFFER);
 	if (iox2_service_builder_pub_sub_set_payload_type_details(&builder,
 				iox2_type_variant_e_FIXED_SIZE, PROGRESS_TYPE, std::strlen(PROGRESS_TYPE),
 				sizeof(Progress), alignof(Progress)) != IOX2_OK) {
@@ -122,11 +128,8 @@ public:
 			std::fprintf(stderr, "cineform: could not open %s\n", PROGRESS_SERVICE_NAME);
 			return false;
 		}
-		// The buffer depth is iceoryx2's default and is NOT set here. See PROGRESS_BUFFER in
-		// wire.hpp: the setter is not in the harness's generated symbol table, and adding it
-		// would mean extending that table unverified in the same change that introduces this
-		// service.
 		auto builder = iox2_port_factory_pub_sub_subscriber_builder(&service_, nullptr);
+		iox2_port_factory_subscriber_builder_set_buffer_size(&builder, PROGRESS_BUFFER);
 		if (iox2_port_factory_subscriber_builder_create(builder, nullptr, &subscriber_) != IOX2_OK) {
 			std::fprintf(stderr, "cineform: no progress subscriber\n");
 			return false;

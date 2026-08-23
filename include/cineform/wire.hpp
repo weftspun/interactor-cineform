@@ -42,23 +42,26 @@ namespace cineform {
 inline constexpr const char *PROGRESS_SERVICE_NAME = "weft/cineform/progress";
 inline constexpr const char *PROGRESS_TYPE = "cineform::Progress";
 
-// The depth this service WANTS, and does not currently get.
+// Samples the progress subscriber holds before the oldest is overwritten.
 //
-// NOT APPLIED. `iox2_port_factory_subscriber_builder_set_buffer_size` is absent from
-// `contract-bus`'s `iceoryx2.sigs`, which is the explicit list the harness generates its
-// dlsym table from. Calling it would mean extending that generated table -- unverified, in
-// the same change that introduces this service -- which is the trade `weft/command.hpp`
-// already refused once when it chose two pub/sub services over request-response. One
-// capability at a time.
+// APPLIED ON BOTH ENDS, and it takes two calls rather than one. The service caps what a
+// subscriber may ask for and iceoryx2's default cap is 2, so setting only the subscriber's
+// depth does not clamp -- it fails to create the subscriber at all. `progress_bus.hpp` sets
+// the service cap and the subscriber depth to this same value.
 //
-// So the subscriber runs at iceoryx2's default depth. That is stated rather than left for a
-// reader to infer from the absence of a call, because the constant below reads exactly like
-// a setting that is in force.
+// RETRACTED: THIS USED TO SAY THE DEPTH COULD NOT BE SET. The setter was absent from
+// `contract-bus`'s `iceoryx2.sigs`, which is the explicit list its dlsym table is generated
+// from, and the conclusion drawn was that applying it would mean extending that table
+// unverified. That was the wrong conclusion from a true fact: the symbol exists in
+// iceoryx2's C ABI, and the list is hand-maintained rather than complete. Extending it is
+// ordinary work, and contract-bus b3acc3be2e00 does it with `proof/buffer_size.cpp` as the
+// gate -- 64 samples sent with nobody reading, recovering 1 at depth 1 and 16 at depth 16.
 //
-// It costs little here and the reason is the design rather than luck: a display redraws at
-// tens of hertz while the encoder emits at hundreds to thousands, so progress samples are
-// dropped at any depth. `ProgressSubscriber::latest` drains to the newest waiting sample for
-// that reason. A deeper buffer would drop fewer and change nothing on screen.
+// The depth still does not stop loss, and is not meant to. A display redraws at tens of
+// hertz while the encoder emits at hundreds to thousands, so samples are dropped at any
+// depth, and `ProgressSubscriber::latest` drains to the newest waiting sample for that
+// reason. What the depth buys is that a display which stalls briefly resumes on a recent
+// frame rather than on whatever survived a two-deep buffer.
 inline constexpr uint64_t PROGRESS_BUFFER = 256;
 
 enum State : uint32_t {

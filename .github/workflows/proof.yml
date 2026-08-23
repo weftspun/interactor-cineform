@@ -5,15 +5,25 @@ on: [push, pull_request]
 
 jobs:
   build-and-prove:
-    runs-on: ubuntu-latest
+    # macos-13 rather than macos-latest, and that is the codec's doing. cineform-sdk
+    # includes <emmintrin.h> unconditionally and sixteen of its files use __m128, with no
+    # NEON path and no scalar fallback -- so Apple Silicon is blocked on the codec and
+    # macos-latest is arm64. macos-13 is the last Intel image, which is what this can run on.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-13]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Install libuuid
+        if: runner.os == 'Linux'
         # cineform-sdk's EncoderSDK/StdAfx.h includes <uuid/uuid.h> on every non-Windows
         # target, and its own CMakeLists links -luuid under UNIX. The runner does not carry
         # the headers by default, so the first EncoderSDK file fails with
         # "fatal error: uuid/uuid.h: No such file or directory" and the eight after it do
         # too -- which reads as eight problems rather than one missing package.
+        # uuid_generate lives in libSystem on macOS, so nothing is installed there.
         run: sudo apt-get update && sudo apt-get install -y uuid-dev
       - name: Fetch the pinned dependencies
         run: |
@@ -22,7 +32,7 @@ jobs:
           # same four pins are cloned directly; a drift between this and the manifest is
           # a real risk and is why the shas are written out rather than tracking a branch.
           git clone --filter=blob:none --no-checkout https://github.com/v-sekai-fabric/contract-bus thirdparty/harness
-          git -C thirdparty/harness checkout 4340ea34394e20b832d9efad66117cae2da2ce7a
+          git -C thirdparty/harness checkout b3acc3be2e00cc2fa25d9d325aa7935c187ea0a2
           git clone --depth 1 --branch v1.6.1 https://github.com/laurencelundblade/QCBOR thirdparty/harness/libs/qcbor
           git clone --filter=blob:none --no-checkout https://github.com/weftspun/cineform-sdk thirdparty/cineform-sdk
           git -C thirdparty/cineform-sdk checkout 6b66f29b5079bfb708caa53ff4150616c11c5fa4

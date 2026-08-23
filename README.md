@@ -41,6 +41,19 @@ fixed-width anyway, so taking the proven variant costs nothing. Losing a progres
 costs one skipped line on a display, which is why it is not folded into the reply, where
 a drop would lose the result.
 
+**One job at a time, and scaling means another interactor rather than another thread.**
+`run_command_loop` answers a command before receiving the next. That is not a queue depth
+waiting to be raised: the encoder pool already takes every core it was given, so a second
+concurrent encode would contend with the first and both would finish later than running
+them in sequence. Measured at 1920x1080, one job saturates a 16-thread CPU at about
+112 fps.
+
+Where more throughput is wanted, the answer is a second interactor in a second container,
+which is what RFD 207d already settles for the see-through pair — two interactors on one
+host would both receive every command and race to answer it. So this limit is a property
+of the architecture rather than a shortfall in this program, and raising it here would
+break the correlation the bus depends on.
+
 `include/cineform/wire.hpp` is the single definition of the four things iceoryx2 compares
 at connect time — service name, payload type name, size, alignment. The TUI includes that
 file rather than restating it, because two copies would be the drift `weft/command.hpp`
@@ -130,6 +143,12 @@ carried at all — the first version of the round-trip gate compared it anyway a
 Uncompressed, so the bar is exact rather than a quality figure. `ffprobe` reports the two
 tracks as `cfhd` and `pcm_s16le`, 45 audio blocks for 45 video frames.
 
+**PROGRESS_BUFFER is applied now**, on both ends. It takes two calls: the service caps what
+a subscriber may ask for and iceoryx2's default cap is 2, so setting only the subscriber's
+depth fails to create the subscriber rather than clamping it. contract-bus `b3acc3be2e00`
+adds both symbols, measured at 64 samples sent with nobody reading — 1 recovered at depth 1,
+16 at depth 16.
+
 **Negative controls.** `proof/wire_agreement.cpp` is 33 checks including four that must
 fail: a truncated command, a well-formed non-map, trailing bytes past the map, and — the
 opposite verdict — an empty map that must be *accepted* as an older sender. A gate that
@@ -199,9 +218,6 @@ signal in a corpus nobody asked for. Audio needs a real input stream.
 
 **8-bit in.** The encoder carries 12 bits internally, so nothing is lost here, but this
 path cannot record more than it is handed.
-
-**One job at a time.** `run_command_loop` answers a command before receiving the next. Two
-encodes on one machine would contend for the same cores and both finish later.
 
 ## Licence
 
