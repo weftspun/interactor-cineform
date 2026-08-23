@@ -198,7 +198,24 @@ second, so both conditions are needed.
 
 ## Platforms
 
-x86_64 only, and that is the codec's property rather than a choice. cineform-sdk includes
+x86_64 only, and that is the codec's property rather than a choice.
+
+| target | state |
+| ------ | ----- |
+| linux x86_64 | built and proved in CI |
+| windows x86_64 | built and proved, and the platform this was developed on |
+| macos arm64 | **refused, and the refusal is checked in CI** |
+| macos x86_64 | should build; **not verified**, see below |
+
+**macOS x86_64 is unverified and that is stated rather than implied.** `macos-13` is the last
+Intel image and a job targeting it never ran — it sat queued with zero steps started, because
+those runners are being retired. A job that never reports is worse than no job.
+
+So the macOS job checks what arm64 *can* establish: that the build refuses, and names the
+codec as the reason. That guard had never been exercised, and it is exactly the kind that
+silently stops matching when a CMake variable is renamed — the first sign would have been an
+incomprehensible build log on somebody's Mac. If it ever passes configure on arm64, the job
+fails and says so. cineform-sdk includes
 `<emmintrin.h>` unconditionally in three files and sixteen use `__m128`, with no NEON path
 and no scalar fallback. CMake refuses a non-x86_64 target with that explanation rather than
 letting it surface hundreds of files deep.

@@ -1,28 +1,22 @@
-# The wire agreement gate. It builds the encoder and runs the proof, which includes the
-# negative controls: a gate that only ever passes certifies a defect as readily as a fix.
+# The wire agreement gate, and the arm64 refusal.
+#
+# Two jobs rather than a matrix, because they check opposite things: one builds the encoder
+# and runs its proof, the other asserts the build REFUSES to start.
 name: proof
 on: [push, pull_request]
 
 jobs:
   build-and-prove:
-    # macos-13 rather than macos-latest, and that is the codec's doing. cineform-sdk
-    # includes <emmintrin.h> unconditionally and sixteen of its files use __m128, with no
-    # NEON path and no scalar fallback -- so Apple Silicon is blocked on the codec and
-    # macos-latest is arm64. macos-13 is the last Intel image, which is what this can run on.
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-13]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install libuuid
-        if: runner.os == 'Linux'
         # cineform-sdk's EncoderSDK/StdAfx.h includes <uuid/uuid.h> on every non-Windows
         # target, and its own CMakeLists links -luuid under UNIX. The runner does not carry
         # the headers by default, so the first EncoderSDK file fails with
         # "fatal error: uuid/uuid.h: No such file or directory" and the eight after it do
         # too -- which reads as eight problems rather than one missing package.
+        #
         # uuid_generate lives in libSystem on macOS, so nothing is installed there.
         run: sudo apt-get update && sudo apt-get install -y uuid-dev
       - name: Fetch the pinned dependencies
@@ -44,3 +38,51 @@ jobs:
         run: cmake --build build --parallel
       - name: Prove the wire agreement
         run: ./build/cineform-proof-wire
+
+  refuses-arm64:
+    # macos-latest, which is Apple Silicon. The encoder CANNOT build here: cineform-sdk
+    # includes <emmintrin.h> unconditionally and sixteen of its files use __m128, with no
+    # NEON path and no scalar fallback.
+    #
+    # THIS JOB CHECKS THE REFUSAL, NOT THE BUILD. CMakeLists.txt rejects a non-x86_64 target
+    # with a message naming the codec, so the failure lands in one line instead of hundreds
+    # of files deep inside a vendored dependency. Nothing verified that guard fired -- it is
+    # the kind of check that is written once and silently stops matching when a variable is
+    # renamed, and the first sign would be an incomprehensible build log on somebody's Mac.
+    #
+    # macos-13 was tried first, being the last Intel image, so the encoder could really be
+    # built. It never ran: the job sat queued with zero steps started, because those runners
+    # are being retired. A job that never reports is worse than no job, so this checks the
+    # thing arm64 CAN establish.
+    #
+    # WHEN THIS FAILS, IT IS TELLING YOU SOMETHING. Either the guard stopped firing, or
+    # somebody wrote the NEON paths -- and in the second case this job is the one that has
+    # to change, which is the reminder being bought.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The build refuses arm64, and says why
+        # No dependencies are fetched. The architecture check sits above the dependency
+        # check in CMakeLists.txt, so it fires on a bare checkout -- and that ordering is
+        # itself worth holding: a user on a Mac should be told the real reason before being
+        # sent to run `repo sync` for a build that cannot succeed.
+        run: |
+          set -eu
+          echo "runner arch: $(uname -m)"
+          if cmake -B build -DCMAKE_BUILD_TYPE=Release > configure.log 2>&1; then
+            echo "FAIL configure SUCCEEDED on $(uname -m)."
+            echo "     Either the x86_64 guard stopped firing, or cineform-sdk grew a NEON"
+            echo "     path. If it is the second, delete this job and build here instead."
+            cat configure.log
+            exit 1
+          fi
+          # Refusing is not enough on its own. A missing dependency, a typo in the CMake, or
+          # a runner without a compiler would all fail here too, and would look identical in
+          # a green tick. The message has to be the one this repository writes.
+          if ! grep -q "interactor-cineform is x86_64 only" configure.log; then
+            echo "FAIL configure failed for some OTHER reason than the architecture guard:"
+            cat configure.log
+            exit 1
+          fi
+          echo "ok  refused, with the codec named as the reason:"
+          grep -A3 "interactor-cineform is x86_64 only" configure.log
