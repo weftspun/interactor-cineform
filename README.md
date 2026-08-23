@@ -137,16 +137,16 @@ only ever passes certifies a defect as readily as a fix.
 
 ## What this found in its dependencies
 
-Both are pushed to the weftspun fork as a branch, and this repository pins the fixed
-commit.
+Each is merged into the fork or repository it belongs to, and this repository pins the
+merged commit. None was sent upstream.
 
 **cineform-sdk did not configure under clang on Windows.** `string(STRIP
 ${ADDITIONAL_LIBS} ADDITIONAL_LIBS)` gets one argument when neither UNIX nor APPLE is set
 and OpenMP is absent. MSVC ships OpenMP, so `OPENMP_FOUND` is true there and the variable
 is assigned — which is why `godot-cineform` never hit it. Quoting is the whole fix.
 
-**`weft::cbor::Reading` does not refuse trailing bytes, though its comment says it does.**
-The header states that `Finish` "reports both a malformed item and trailing bytes past the
+**`weft::cbor::Reading` did not refuse trailing bytes, though its comment said it did.**
+The header stated that `Finish` "reports both a malformed item and trailing bytes past the
 end". Measured against `f9f1ddcd9341`, with one byte appended to a 99-byte encoded job:
 
     trailing 0xFF break stop-code   accepted
@@ -154,13 +154,18 @@ end". Measured against `f9f1ddcd9341`, with one byte appended to a 99-byte encod
     trailing 0xA0 empty map         accepted
     trailing 0x00 integer 0         accepted
 
-Four of four accepted. The well-formedness walk calls `QCBORDecode_GetNext` until it stops
-succeeding, which *consumes* a trailing item, so `Finish` then sees a cleanly exhausted
-buffer. `src/job.cpp` checks it here rather than trusting the claim; the defect is
-contract-bus's and is not fixed from this repository.
+Four of four accepted, and two concatenated messages were read as one with the second
+dropped. The well-formedness walk calls `QCBORDecode_GetNext` until it stops succeeding,
+which *consumes* a trailing item, so `Finish` then sees a cleanly exhausted buffer.
 
-That check took three attempts, and the two that failed are recorded in the source,
-because each looked complete:
+**Fixed at the source**, in contract-bus `4340ea343941`, with `proof/cbor_shape.cpp` as the
+gate that was missing: 5 of its 14 checks fail against the old walk and all 14 pass against
+the new one. This repository pins that commit and carried its own guard until it landed —
+a second copy of a rule is the drift the shared header exists to prevent, so the guard is
+gone now rather than kept "just in case".
+
+The fix took three attempts, and the two that failed are worth recording because each
+looked complete:
 
 | input          | top-level items | consumed | Finish | stop reason      |
 | -------------- | --------------- | -------- | ------ | ---------------- |
@@ -169,7 +174,8 @@ because each looked complete:
 | `{"a":1}` `FF` | 1               | 5/5      | ok     | 32 malformed     |
 
 Counting items misses the last row and comparing consumed length misses it too. Only *why
-the walk stopped* separates it.
+the walk stopped* separates that row from the first, and only the *count* separates the
+second, so both conditions are needed.
 
 ## Platforms
 

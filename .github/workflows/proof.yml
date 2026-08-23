@@ -22,10 +22,10 @@ jobs:
           # same four pins are cloned directly; a drift between this and the manifest is
           # a real risk and is why the shas are written out rather than tracking a branch.
           git clone --filter=blob:none --no-checkout https://github.com/v-sekai-fabric/contract-bus thirdparty/harness
-          git -C thirdparty/harness checkout f9f1ddcd93412a51ba7f161e8c4f3eeeb1ebc3aa
+          git -C thirdparty/harness checkout 4340ea34394e20b832d9efad66117cae2da2ce7a
           git clone --depth 1 --branch v1.6.1 https://github.com/laurencelundblade/QCBOR thirdparty/harness/libs/qcbor
           git clone --filter=blob:none --no-checkout https://github.com/weftspun/cineform-sdk thirdparty/cineform-sdk
-          git -C thirdparty/cineform-sdk checkout e9fc59b4c4194a41e21b0d6ad7ff0a2515163ea5
+          git -C thirdparty/cineform-sdk checkout 6b66f29b5079bfb708caa53ff4150616c11c5fa4
           git clone --filter=blob:none --no-checkout https://github.com/weftspun/libwebm thirdparty/libwebm
           git -C thirdparty/libwebm checkout 6184f4484a826724b5293837134ab9492261b941
       - name: Configure
