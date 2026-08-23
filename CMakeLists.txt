@@ -98,6 +98,21 @@ target_include_directories(interactor-cineform PRIVATE
 )
 target_link_libraries(interactor-cineform PRIVATE weft::harness CFHDCodecStatic cineform_mkvmuxer)
 
+# libuuid, on Linux only. SampleEncoder.cpp and MetadataWriter.cpp call uuid_generate, and
+# cineform-sdk sets ADDITIONAL_LIBS to "-luuid -lpthread" but applies it ONLY to its own
+# TestCFHD target -- CFHDCodecStatic carries no link interface at all, so every consumer
+# has to know this. Compiling succeeded and linking did not, with two undefined references
+# and no mention of the package that supplies them.
+#
+# Not on macOS: uuid_generate is in libSystem there, and asking for -luuid fails to find a
+# library that does not exist rather than finding one that is not needed.
+if(UNIX AND NOT APPLE)
+  find_library(UUID_LIBRARY NAMES uuid REQUIRED)
+  target_link_libraries(interactor-cineform PRIVATE ${UUID_LIBRARY})
+endif()
+find_package(Threads REQUIRED)
+target_link_libraries(interactor-cineform PRIVATE Threads::Threads)
+
 # encoder.cpp uses _mm_shuffle_epi8, which is SSSE3. clang and gcc require the feature to be
 # enabled before the intrinsic may be used and refuse to inline it otherwise; MSVC enables
 # every intrinsic it knows and needs no flag. The raise from the x86-64 SSE2 baseline to
