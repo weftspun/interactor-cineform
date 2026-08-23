@@ -64,8 +64,15 @@ size_t run_job(Context *ctx, const cineform::Job &job, unsigned char *reply, siz
 
 	std::string error;
 
+	// Godot's own figure: one frame's worth of audio is mix_rate / fps samples per channel.
+	// Integer division, deliberately -- Godot's MovieWriter computes it the same way, so a
+	// rate that does not divide evenly drifts in exactly the same direction as the engine's
+	// own recording rather than in a different one.
+	const uint32_t audio_per_frame = (job.mix_rate && job.fps) ? job.mix_rate / job.fps : 0;
+
 	cineform::Source source;
-	if (!source.open(job.source, job.input, job.width, job.height, job.total_frames, &error)) {
+	if (!source.open(job.source, job.input, job.width, job.height, job.total_frames,
+				audio_per_frame, job.channels, &error)) {
 		p.state = cineform::STATE_FAILED;
 		ctx->progress.send(p);
 		return reply_error(reply, cap, error);
@@ -78,11 +85,27 @@ size_t run_job(Context *ctx, const cineform::Job &job, unsigned char *reply, siz
 		return reply_error(reply, cap, error);
 	}
 
+	const bool want_audio = audio_per_frame != 0;
+	if (want_audio && job.audio_bits != 16 && job.audio_bits != 32) {
+		p.state = cineform::STATE_FAILED;
+		ctx->progress.send(p);
+		return reply_error(reply, cap,
+				"audio_bits must be 16 or 32, got " + std::to_string(job.audio_bits));
+	}
+
 	cineform::MkvWriter mkv;
 	if (!mkv.open(job.output, job.width, job.height, job.fps, job.keep_alpha)) {
 		p.state = cineform::STATE_FAILED;
 		ctx->progress.send(p);
 		return reply_error(reply, cap, "could not open " + job.output + " for writing");
+	}
+	// The track entry goes in before any cluster, because Matroska writes its track list
+	// once, ahead of the data. A_PCM/INT/LIT needs no CodecPrivate: the rate, channel count
+	// and depth in the track entry describe the samples completely.
+	if (want_audio && !mkv.add_audio_track(job.mix_rate, job.channels, job.audio_bits)) {
+		p.state = cineform::STATE_FAILED;
+		ctx->progress.send(p);
+		return reply_error(reply, cap, "could not add the PCM audio track");
 	}
 
 	// The clock starts after every resource is open, so a slow disk mount is not reported as
@@ -110,13 +133,53 @@ size_t run_job(Context *ctx, const cineform::Job &job, unsigned char *reply, siz
 		ctx->progress.send(p);
 	};
 
+	// Godot hands over int32 whatever the depth, and its own writer takes the top 16 bits
+	// for a 16-bit track. The same convention is kept here rather than rescaling, so a file
+	// written by the engine and one written by this interactor hold the same numbers.
+	//
+	// Arithmetic shift, so negative samples stay negative. A logical shift turns the bottom
+	// half of the waveform into full-scale positive noise, which is audible immediately and
+	// looks like a codec fault rather than a sign error.
+	std::vector<uint8_t> pcm;
+	uint64_t audio_samples = 0;
+	auto write_audio = [&](const std::vector<int32_t> &block) {
+		if (block.empty()) {
+			return;
+		}
+		const size_t bytes_per = job.audio_bits / 8u;
+		pcm.resize(block.size() * bytes_per);
+		uint8_t *out = pcm.data();
+		for (size_t i = 0; i < block.size(); i++) {
+			if (job.audio_bits == 16) {
+				const int16_t v = int16_t(block[i] >> 16);
+				out[0] = uint8_t(uint16_t(v));
+				out[1] = uint8_t(uint16_t(v) >> 8);
+			} else {
+				const uint32_t v = uint32_t(block[i]);
+				out[0] = uint8_t(v);
+				out[1] = uint8_t(v >> 8);
+				out[2] = uint8_t(v >> 16);
+				out[3] = uint8_t(v >> 24);
+			}
+			out += bytes_per;
+		}
+		if (!mkv.add_audio_frame(pcm.data(), pcm.size(), audio_samples)) {
+			mux_failed = true;
+		}
+		audio_samples += audio_per_frame;
+	};
+
 	std::vector<uint8_t> frame;
+	std::vector<int32_t> audio;
 	for (;;) {
-		if (!source.next(&frame, &error)) {
+		if (!source.next(&frame, &audio, &error)) {
 			break; // end of stream, or a short read that set `error`
 		}
 		if (!encoder.submit(frame.data(), on_sample, &error)) {
 			break;
+		}
+		if (want_audio) {
+			write_audio(audio);
 		}
 		if (mux_failed) {
 			error = "the muxer refused a frame";
@@ -129,6 +192,10 @@ size_t run_job(Context *ctx, const cineform::Job &job, unsigned char *reply, siz
 	// that go away when `encoder` does.
 	encoder.drain(true, on_sample);
 	encoder.stop();
+
+	// No audio flush. PCM is written a block at a time as each frame is read, so there is
+	// nothing buffered to lose -- which is the one thing the removed FLAC path needed a
+	// finish() call for.
 
 	const bool finalized = mkv.close();
 	const uint64_t elapsed = now_ns() - started;
@@ -160,6 +227,8 @@ size_t run_job(Context *ctx, const cineform::Job &job, unsigned char *reply, siz
 	m.uint("width", job.width);
 	m.uint("height", job.height);
 	m.uint("quality", job.quality);
+	m.uint("audio_frames", mkv.audio_frames_written());
+	m.uint("audio_samples", audio_samples);
 	return m.finish();
 }
 

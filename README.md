@@ -46,6 +46,38 @@ at connect time — service name, payload type name, size, alignment. The TUI in
 file rather than restating it, because two copies would be the drift `weft/command.hpp`
 exists to prevent one layer up.
 
+## Audio: Godot's own layout, uncompressed
+
+`MovieWriter::write_frame` receives an `Image` and that frame's block of audio together, so
+the raw stream interleaves them the same way:
+
+    [RGBA8  w*h*4 bytes][int32 audio  (rate/fps)*channels]
+    [RGBA8  w*h*4 bytes][int32 audio  (rate/fps)*channels]
+    ...
+
+One stream, so video and audio cannot disagree about length — two separate files can, and
+nothing notices until the muxed result is short at one end. `rate/fps` is integer division
+because that is how Godot computes it, so an uneven rate drifts in the same direction the
+engine's own recording does rather than a different one.
+
+**Samples are int32 on the wire whatever the depth**, because that is what Godot hands over;
+its writer takes the top 16 bits for a 16-bit track and so does this. The wire width and the
+sample depth are different numbers, and taking one for the other costs 48 dB.
+
+**The track is `A_PCM/INT/LIT` — uncompressed, and that is a decision.** A FLAC track was
+built here first and removed. Neither library this workspace was pointed at can encode:
+miniflac is a decoder and `V-Sekai.flac` is a playback module over `dr_flac`, also a decoder.
+libFLAC does encode, and it is licence-split — BSD codec, GPL tools — so it needed careful
+build switches to stay on the right side of the line.
+
+Against CineForm video the compression was not worth the dependency:
+
+| stream                          | rate           |
+| ------------------------------- | -------------- |
+| CineForm 1080p60, measured      | 0.47 Gbit/s    |
+| PCM 48 kHz stereo 16-bit        | 1.5 Mbit/s     |
+| audio as a share of the file    | about 0.3 %    |
+
 ## Build
 
 Dependencies come from this repository's own `default.xml`, which makes it a `repo`
@@ -87,6 +119,16 @@ carried at all — the first version of the round-trip gate compared it anyway a
 
     1920x1080  6 frames   67 ms    ~112 fps
      640x360  60 frames   40 ms   ~1810 fps
+
+**Audio, through the real bus.** 45 frames of a Godot-style interleaved stream at 320x240,
+48 kHz stereo, 16-bit, decoded back with FFmpeg and compared sample by sample:
+
+    decoded samples   144000 of 144000
+    differing         0
+    worst error       0
+
+Uncompressed, so the bar is exact rather than a quality figure. `ffprobe` reports the two
+tracks as `cfhd` and `pcm_s16le`, 45 audio blocks for 45 video frames.
 
 **Negative controls.** `proof/wire_agreement.cpp` is 33 checks including four that must
 fail: a truncated command, a well-formed non-map, trailing bytes past the map, and — the
@@ -142,13 +184,12 @@ nobody wrote down is a floor found by a bug report.
 
 ## Known gaps
 
-**No audio.** The Godot module muxes a PCM track; this does not. A movie recorded here has
-no sound, which is honest — a writer that accepted audio and dropped it would look like it
-were recording it.
-
 **Two input sources, and no image decoder.** Packed 8-bit RGBA, and a deterministic test
 pattern that needs no input file. There is no decode-any-image path: a source that guesses
 a format from an extension and guesses wrong produces a file rather than an error.
+
+**The test pattern is silent.** It is a video source, and inventing a tone would put a
+signal in a corpus nobody asked for. Audio needs a real input stream.
 
 **8-bit in.** The encoder carries 12 bits internally, so nothing is lost here, but this
 path cannot record more than it is handed.

@@ -120,6 +120,15 @@ bool job_decode(const unsigned char *body, size_t len, Job *out) {
 	if (r.uint("total_frames", v)) {
 		out->total_frames = v;
 	}
+	if (r.uint("mix_rate", v)) {
+		out->mix_rate = uint32_t(v);
+	}
+	if (r.uint("channels", v)) {
+		out->channels = uint32_t(v);
+	}
+	if (r.uint("audio_bits", v)) {
+		out->audio_bits = uint32_t(v);
+	}
 
 	bool b = false;
 	if (r.boolean("keep_alpha", b)) {
@@ -139,6 +148,9 @@ size_t job_encode(const Job &job, unsigned char *buf, size_t cap) {
 	m.uint("threads", job.threads);
 	m.uint("source", job.source);
 	m.uint("total_frames", job.total_frames);
+	m.uint("mix_rate", job.mix_rate);
+	m.uint("channels", job.channels);
+	m.uint("audio_bits", job.audio_bits);
 	m.boolean("keep_alpha", job.keep_alpha);
 	return m.finish();
 }

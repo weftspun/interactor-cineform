@@ -38,7 +38,7 @@ foreach(dep "${HARNESS_DIR}" "${CINEFORM_DIR}" "${LIBWEBM_DIR}")
   if(NOT EXISTS "${dep}")
     message(FATAL_ERROR
       "missing dependency at ${dep}.\n"
-      "  All three come from this repository's own manifest. From the repository root:\n"
+      "  They all come from this repository's own manifest. From the repository root:\n"
       "    repo init -u https://github.com/weftspun/interactor-cineform -m default.xml\n"
       "    repo sync")
   endif()
@@ -131,4 +131,6 @@ if(CINEFORM_PROOF)
     "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}/src")
   target_link_libraries(cineform-proof-wire PRIVATE weft::harness)
   add_test(NAME wire_agreement COMMAND cineform-proof-wire)
+
 endif()
+

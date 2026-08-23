@@ -29,6 +29,13 @@ namespace cineform {
 // extension" path, because a guess that is wrong here produces a file rather than an error.
 enum SourceKind : uint32_t {
 	// Packed 8-bit RGBA, width*height*4 bytes per frame, read until short. "-" is stdin.
+	//
+	// GODOT'S OWN LAYOUT WHEN mix_rate IS NON-ZERO. `MovieWriter::write_frame` receives an
+	// Image and a block of that frame's audio together, so the stream interleaves them the
+	// same way: the pixels of frame N, then frame N's audio block, then frame N+1. One
+	// stream, and video and audio cannot disagree about length because they are adjacent
+	// by construction -- two separate files can, and nothing notices until the muxed
+	// result is short at one end.
 	SOURCE_RAW_RGBA = 0,
 	// The codec's own QBIST pattern generator, the one Example/TestCFHD.cpp encodes. It needs
 	// no input file, which is what makes an end-to-end run possible on a bare machine.
@@ -53,6 +60,16 @@ struct Job {
 	// a percentage and an unbounded one is honest about not having one.
 	uint64_t total_frames = 0;
 	bool keep_alpha = false;
+
+	// AUDIO. `mix_rate == 0` means the stream carries none, and 0 is a value here rather
+	// than a hole: it is what a silent render reports for its whole run, and it is what
+	// decides whether the raw stream has audio blocks between its frames at all.
+	uint32_t mix_rate = 0;
+	uint32_t channels = 2;
+	// The PCM sample depth written into the file, 16 or 32. NOT the width of a sample on
+	// the wire, which is always int32 because that is what Godot hands over; the two are
+	// different numbers, and taking the wire width for the depth costs 48 dB.
+	uint32_t audio_bits = 16;
 };
 
 // Reads a job out of a command body. Returns false if the message was not a well-formed map;

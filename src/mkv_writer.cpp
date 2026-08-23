@@ -72,6 +72,46 @@ bool MkvWriter::open(const std::string &path, uint32_t width, uint32_t height, u
 	return true;
 }
 
+bool MkvWriter::add_audio_track(uint32_t mix_rate, uint32_t channels, uint32_t bits) {
+	if (!open_) {
+		return false;
+	}
+	audio_track_ = segment_.AddAudioTrack(int32_t(mix_rate), int32_t(channels), 0);
+	if (audio_track_ == 0) {
+		std::fprintf(stderr, "cineform: could not add an audio track\n");
+		return false;
+	}
+	mkvmuxer::AudioTrack *at = (mkvmuxer::AudioTrack *)segment_.GetTrackByNumber(audio_track_);
+	if (at == nullptr) {
+		return false;
+	}
+	at->set_codec_id("A_PCM/INT/LIT");
+	at->set_bit_depth(bits);
+	mix_rate_ = mix_rate;
+	return true;
+}
+
+bool MkvWriter::add_audio_frame(const void *data, size_t len, uint64_t first_sample) {
+	if (!open_ || audio_track_ == 0) {
+		return false;
+	}
+	// From the sample index rather than accumulated, for the same reason the video track
+	// derives its timestamp from the frame index: a per-block rounding error would drift
+	// audio away from video over a long file, and drift is what nobody notices until the
+	// end.
+	const uint64_t timestamp_ns =
+			first_sample * 1000000000ULL / (mix_rate_ ? mix_rate_ : 1);
+	// Every PCM block stands alone, so each is a keyframe.
+	if (!segment_.AddFrame((const uint8_t *)data, len, audio_track_, timestamp_ns, true)) {
+		std::fprintf(stderr, "cineform: could not add audio frame %llu to the segment\n",
+				(unsigned long long)audio_frames_);
+		return false;
+	}
+	audio_frames_++;
+	audio_bytes_ += len;
+	return true;
+}
+
 bool MkvWriter::add_frame(const void *data, size_t len) {
 	if (!open_) {
 		return false;
