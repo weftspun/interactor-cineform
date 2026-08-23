@@ -8,6 +8,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install libuuid
+        # cineform-sdk's EncoderSDK/StdAfx.h includes <uuid/uuid.h> on every non-Windows
+        # target, and its own CMakeLists links -luuid under UNIX. The runner does not carry
+        # the headers by default, so the first EncoderSDK file fails with
+        # "fatal error: uuid/uuid.h: No such file or directory" and the eight after it do
+        # too -- which reads as eight problems rather than one missing package.
+        run: sudo apt-get update && sudo apt-get install -y uuid-dev
       - name: Fetch the pinned dependencies
         run: |
           set -eux
