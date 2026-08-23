@@ -205,11 +205,17 @@ x86_64 only, and that is the codec's property rather than a choice.
 | linux x86_64 | built and proved in CI |
 | windows x86_64 | built and proved, and the platform this was developed on |
 | macos arm64 | **refused, and the refusal is checked in CI** |
-| macos x86_64 | should build; **not verified**, see below |
+| macos x86_64 | **not targeted**, see below |
 
-**macOS x86_64 is unverified and that is stated rather than implied.** `macos-13` is the last
-Intel image and a job targeting it never ran — it sat queued with zero steps started, because
-those runners are being retired. A job that never reports is worse than no job.
+**macOS x86_64 is not a target, and that is a decision rather than a gap waiting to close.**
+It would very likely build — the codec's constraint is the instruction set, not the operating
+system, and Linux and Windows both build on the same intrinsics. Nothing here depends on that
+being true, so nothing here measures it.
+
+The runner situation is what settles it. `macos-13` is the last Intel image, and a job
+targeting it never ran: it sat queued with zero steps started, because those runners are
+being retired. A job that never reports is worse than no job, and a platform claim nothing
+exercises is worse than an admitted absence.
 
 So the macOS job checks what arm64 *can* establish: that the build refuses, and names the
 codec as the reason. That guard had never been exercised, and it is exactly the kind that
