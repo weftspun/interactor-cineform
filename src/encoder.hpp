@@ -14,6 +14,13 @@
 #ifndef CINEFORM_ENCODER_HPP
 #define CINEFORM_ENCODER_HPP
 
+// <cstddef> BEFORE the SDK header, and the order is load-bearing. CFHDAllocator.h, which
+// CFHDEncoder.h pulls in, declares `size_t` parameters without including anything that
+// defines it. libc++ on Windows happens to have provided it transitively, so this built
+// there for weeks; gcc on Linux does not, and reports three "'size_t' has not been
+// declared" errors inside a vendored header that has not changed.
+#include <cstddef>
+
 #include "CFHDEncoder.h"
 
 #include <cstdint>
