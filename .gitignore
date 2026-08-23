@@ -1,0 +1,8 @@
+build/
+thirdparty/harness/
+thirdparty/cineform-sdk/
+thirdparty/libwebm/
+.repo/
+__pycache__/
+*.mkv
+*.raw

@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+title: "CineForm encoder as a weft-bus interactor"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - given-names: Ernest
+    family-names: Lee
+    email: ernest.lee@chibifire.com
+license: Apache-2.0 OR MIT
+repository-code: "https://github.com/weftspun/interactor-cineform"
+
+abstract: >-
+  A headless GoPro CineForm encoder answering encode commands over an iceoryx2 shared-memory bus, muxing to Matroska.
