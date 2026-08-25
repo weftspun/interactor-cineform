@@ -106,6 +106,17 @@ CMake 4 refuses anything below 3.10 without it.
 
 None of the three is a git submodule. `CLAUDE.md` blocklists those.
 
+**Inside the weftspun-keypoint workspace, the dependencies come from the goal manifest
+instead.** They are checked out under `7-service/service-cineform/thirdparty/`, and this
+build takes them through the cache paths above rather than syncing a second copy. Two
+checkouts of contract-bus in one tree is the drift `wire.hpp` exists to prevent.
+
+**Do not run `repo init` in this directory to get them.** It walks up to the workspace
+client and re-points the goal manifest at this project, reporting only that it initialised
+somewhere else. `7-service/service-cineform/README.md` gives the command line that builds
+this against the composed checkout.
+
+
 ## What was measured
 
 Built on Windows 11 with clang 22.1.8, CMake 4.4.2, Ninja 1.13.2, against cineform-sdk
