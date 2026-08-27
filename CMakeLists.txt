@@ -26,6 +26,20 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # to NEON rather than being emulated.
 #
 # Other architectures still fail here rather than hundreds of files deep in the codec.
+# macOS: pin the deployment target rather than inheriting the host SDK.
+#
+# With this unset CMake stamps whatever SDK built the binary, so a machine on macOS 26
+# produces something that refuses to launch on 15 and below -- LC_BUILD_VERSION minos
+# 26.0. That was invisible while arm64 was refused outright and CI ran on Linux, and it
+# becomes real the moment this builds on a Mac at all.
+#
+# 11.0 is the floor rather than a preference: Big Sur is the first release that runs on
+# Apple Silicon, so nothing older could execute the arm64 slice anyway. It also matches
+# what godot targets in this workspace. Override on the command line to raise it.
+if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
+endif()
+
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8
    OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64|arm64|aarch64|ARM64")
   message(FATAL_ERROR
