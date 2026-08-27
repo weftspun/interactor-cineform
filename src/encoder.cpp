@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <thread>
 
-#include <tmmintrin.h>
+#include "simd_compat.h"
 
 namespace cineform {
 
