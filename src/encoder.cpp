@@ -4,7 +4,16 @@
 #include <algorithm>
 #include <thread>
 
+// _mm_shuffle_epi8 is SSSE3, which lives in <tmmintrin.h>. simd_compat.h answers at the
+// SSE2 baseline because every other file that includes it is compiled without -mssse3,
+// and pulling the SSSE3 header into those would fail on GCC. So x86 takes the real
+// header here, unchanged from before the ARM port, and ARM takes sse2neon -- which
+// supplies _mm_shuffle_epi8 with no feature flag, NEON being baseline on aarch64.
+#if defined(__aarch64__) || defined(__ARM_NEON)
+#include "simd_compat.h"
+#else
 #include <tmmintrin.h>
+#endif
 
 namespace cineform {
 

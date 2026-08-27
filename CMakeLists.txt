@@ -18,16 +18,34 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# x86_64 only, and that is the codec's property rather than a choice. cineform-sdk includes
-# <emmintrin.h> unconditionally in Codec/codec.c, convert.c and encoder.c, and sixteen files
-# use __m128 with no NEON path and no scalar fallback. _XMMOPT gates code paths but not the
-# include, so a non-x86 target fails in the preprocessor hundreds of files deep inside a
-# vendored dependency. Refusing here means the message names the real reason.
-if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
+# x86_64 and arm64. cineform-sdk includes <emmintrin.h>, <xmmintrin.h> and <mmintrin.h>
+# and uses both the 128-bit SSE surface and the 64-bit MMX one -- 1687 __m64 declarations
+# and roughly 4900 _mm_*_pi* calls -- with no scalar fallback: the one #if XMMOPT site has
+# no #else. ARM is served by Codec/simd_compat.h, which is sse2neon for the 128-bit half
+# and Codec/mmx2neon.h for the 64-bit half, so the includes resolve and the intrinsics map
+# to NEON rather than being emulated.
+#
+# Other architectures still fail here rather than hundreds of files deep in the codec.
+# macOS: pin the deployment target rather than inheriting the host SDK.
+#
+# With this unset CMake stamps whatever SDK built the binary, so a machine on macOS 26
+# produces something that refuses to launch on 15 and below -- LC_BUILD_VERSION minos
+# 26.0. That was invisible while arm64 was refused outright and CI ran on Linux, and it
+# becomes real the moment this builds on a Mac at all.
+#
+# 11.0 is the floor rather than a preference: Big Sur is the first release that runs on
+# Apple Silicon, so nothing older could execute the arm64 slice anyway. It also matches
+# what godot targets in this workspace. Override on the command line to raise it.
+if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
+endif()
+
+if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8
+   OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64|arm64|aarch64|ARM64")
   message(FATAL_ERROR
-    "interactor-cineform is x86_64 only. cineform-sdk has no NEON path and no scalar "
-    "fallback; sixteen of its files use __m128 and three include <emmintrin.h> "
-    "unconditionally. Porting means writing those paths, not changing this line.")
+    "interactor-cineform builds for x86_64 and arm64. cineform-sdk needs SSE2 and MMX; "
+    "ARM gets them through Codec/simd_compat.h. A third architecture means adding a "
+    "mapping there, not changing this line.")
 endif()
 
 set(HARNESS_DIR   "${CMAKE_SOURCE_DIR}/thirdparty/harness"      CACHE PATH "contract-bus checkout")
@@ -93,6 +111,11 @@ add_executable(interactor-cineform
 target_include_directories(interactor-cineform PRIVATE
   "${CMAKE_SOURCE_DIR}/include"
   "${CMAKE_SOURCE_DIR}/src"
+  # Codec/ carries simd_compat.h, which encoder.cpp needs for the SSSE3 intrinsic on
+  # ARM. Adding the directory keeps that a plain include rather than a relative path
+  # out of the source tree, which would differ between the workspace and deployment
+  # layouts.
+  "${CINEFORM_DIR}/Codec"
   "${CINEFORM_DIR}/Common"
   "${CINEFORM_DIR}/EncoderSDK"
 )
@@ -118,7 +141,12 @@ target_link_libraries(interactor-cineform PRIVATE Threads::Threads)
 # every intrinsic it knows and needs no flag. The raise from the x86-64 SSE2 baseline to
 # SSSE3 (Core 2, 2006) is argued in encoder.cpp beside the code that takes it.
 if(NOT MSVC)
-  set_source_files_properties(src/encoder.cpp PROPERTIES COMPILE_OPTIONS "-mssse3")
+  # -mssse3 is an x86 flag and clang rejects it outright on arm64 rather than ignoring
+  # it. The SSSE3 path it enables is reached through sse2neon on ARM, which needs no
+  # flag: NEON is baseline on aarch64 and always available.
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
+    set_source_files_properties(src/encoder.cpp PROPERTIES COMPILE_OPTIONS "-mssse3")
+  endif()
 endif()
 
 # The wire agreement gate. It reads the struct out of the header rather than restating it, so
