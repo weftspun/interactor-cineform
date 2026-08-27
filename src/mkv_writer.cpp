@@ -113,12 +113,15 @@ bool MkvWriter::add_audio_frame(const void *data, size_t len, uint64_t first_sam
 }
 
 bool MkvWriter::add_frame(const void *data, size_t len) {
+	// Matroska timestamps are absolute nanoseconds, derived from the frame index rather than
+	// accumulated, so rounding cannot drift over a long file.
+	return add_frame(data, len, frames_ * 1000000000ULL / (fps_ ? fps_ : 1));
+}
+
+bool MkvWriter::add_frame(const void *data, size_t len, uint64_t timestamp_ns) {
 	if (!open_) {
 		return false;
 	}
-	// Matroska timestamps are absolute nanoseconds, derived from the frame index rather than
-	// accumulated, so rounding cannot drift over a long file.
-	const uint64_t timestamp_ns = frames_ * 1000000000ULL / (fps_ ? fps_ : 1);
 	if (!segment_.AddFrame((const uint8_t *)data, len, video_track_, timestamp_ns, true)) {
 		std::fprintf(stderr, "cineform: could not add frame %llu to the segment\n",
 				(unsigned long long)frames_);
@@ -126,6 +129,7 @@ bool MkvWriter::add_frame(const void *data, size_t len) {
 	}
 	frames_++;
 	bytes_ += len;
+	last_timestamp_ns_ = timestamp_ns;
 	return true;
 }
 
@@ -137,7 +141,13 @@ bool MkvWriter::close() {
 
 	// Matroska takes its duration from the last timestamp, so a file whose final frame has
 	// none reports a duration one frame short. set_duration is in milliseconds.
-	const uint64_t duration_ns = frames_ * 1000000000ULL / (fps_ ? fps_ : 1);
+	//
+	// Carried from the last timestamp written rather than from the frame count, because the
+	// two stopped being the same thing when explicit timestamps arrived. For a constant-rate
+	// file they still agree exactly: the last index is frames_ - 1, so adding one frame
+	// gives frames_ * 1e9 / fps, which is what this line computed before.
+	const uint64_t frame_ns = 1000000000ULL / (fps_ ? fps_ : 1);
+	const uint64_t duration_ns = frames_ ? last_timestamp_ns_ + frame_ns : 0;
 	segment_.set_duration(double(duration_ns) / 1000000.0);
 
 	const bool finalized = segment_.Finalize();

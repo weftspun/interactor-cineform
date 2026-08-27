@@ -44,6 +44,22 @@ public:
 
 	// One encoded CineForm sample. Every CineForm frame is a keyframe, so there is no
 	// is-this-a-keyframe question to get wrong.
+	// One encoded CineForm sample at an explicit presentation time.
+	//
+	// VARIABLE-RATE SOURCES NEED THIS. The fps given to open() is one constant, and a
+	// capture whose frames are not uniformly spaced cannot be described by one. Feeding
+	// such a source through the constant-rate path below yields a file whose two tracks
+	// end at different times: the audio is timestamped from its sample index and is
+	// therefore right, while the video is timestamped from a rate it never had. The file
+	// looks synchronised -- one container, two tracks -- and is not, which is worse than
+	// two separate files, because nothing about it says so.
+	//
+	// Matroska carries an absolute timestamp per block already; only this class withheld
+	// it. Callers that know when each frame belongs pass it here.
+	bool add_frame(const void *data, size_t len, uint64_t timestamp_ns);
+
+	// One encoded CineForm sample, timed from the frame index at the fps given to open().
+	// Unchanged: a constant-rate caller gets exactly the timestamps it always got.
 	bool add_frame(const void *data, size_t len);
 
 	// Finalizes and closes. Safe to call twice; the second call does nothing.
@@ -66,6 +82,9 @@ private:
 	uint64_t audio_bytes_ = 0;
 	uint32_t fps_ = 0;
 	uint64_t frames_ = 0;
+	// The last timestamp actually written. With explicit timestamps the frame count no
+	// longer implies the end of the file, and close() needs the real one.
+	uint64_t last_timestamp_ns_ = 0;
 	uint64_t bytes_ = 0;
 	bool open_ = false;
 };
