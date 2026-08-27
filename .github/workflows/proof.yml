@@ -29,7 +29,7 @@ jobs:
           git -C thirdparty/harness checkout b3acc3be2e00cc2fa25d9d325aa7935c187ea0a2
           git clone --depth 1 --branch v1.6.1 https://github.com/laurencelundblade/QCBOR thirdparty/harness/libs/qcbor
           git clone --filter=blob:none --no-checkout https://github.com/weftspun/cineform-sdk thirdparty/cineform-sdk
-          git -C thirdparty/cineform-sdk checkout 6b66f29b5079bfb708caa53ff4150616c11c5fa4
+          git -C thirdparty/cineform-sdk checkout 6869d78c350f78117dfd04e7a74348c440876cc7
           git clone --filter=blob:none --no-checkout https://github.com/weftspun/libwebm thirdparty/libwebm
           git -C thirdparty/libwebm checkout 6184f4484a826724b5293837134ab9492261b941
       - name: Configure
@@ -39,50 +39,39 @@ jobs:
       - name: Prove the wire agreement
         run: ./build/cineform-proof-wire
 
-  refuses-arm64:
-    # macos-latest, which is Apple Silicon. The encoder CANNOT build here: cineform-sdk
-    # includes <emmintrin.h> unconditionally and sixteen of its files use __m128, with no
-    # NEON path and no scalar fallback.
+  builds-arm64:
+    # This job used to assert that the build REFUSES to start on Apple Silicon, because
+    # cineform-sdk had no NEON path. It grew one, so the refusal is no longer the truth
+    # to check -- the job's own comment said to delete it and build here instead, and
+    # this is that.
     #
-    # THIS JOB CHECKS THE REFUSAL, NOT THE BUILD. CMakeLists.txt rejects a non-x86_64 target
-    # with a message naming the codec, so the failure lands in one line instead of hundreds
-    # of files deep inside a vendored dependency. Nothing verified that guard fired -- it is
-    # the kind of check that is written once and silently stops matching when a variable is
-    # renamed, and the first sign would be an incomprehensible build log on somebody's Mac.
-    #
-    # macos-13 was tried first, being the last Intel image, so the encoder could really be
-    # built. It never ran: the job sat queued with zero steps started, because those runners
-    # are being retired. A job that never reports is worse than no job, so this checks the
-    # thing arm64 CAN establish.
-    #
-    # WHEN THIS FAILS, IT IS TELLING YOU SOMETHING. Either the guard stopped firing, or
-    # somebody wrote the NEON paths -- and in the second case this job is the one that has
-    # to change, which is the reminder being bought.
+    # macos-latest is Apple Silicon. Building here proves the arm64 path end to end on a
+    # machine nobody has to keep specially, and the wire proof runs the result.
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: The build refuses arm64, and says why
-        # No dependencies are fetched. The architecture check sits above the dependency
-        # check in CMakeLists.txt, so it fires on a bare checkout -- and that ordering is
-        # itself worth holding: a user on a Mac should be told the real reason before being
-        # sent to run `repo sync` for a build that cannot succeed.
+      - name: Fetch the pinned dependencies
         run: |
-          set -eu
-          echo "runner arch: $(uname -m)"
-          if cmake -B build -DCMAKE_BUILD_TYPE=Release > configure.log 2>&1; then
-            echo "FAIL configure SUCCEEDED on $(uname -m)."
-            echo "     Either the x86_64 guard stopped firing, or cineform-sdk grew a NEON"
-            echo "     path. If it is the second, delete this job and build here instead."
-            cat configure.log
-            exit 1
-          fi
-          # Refusing is not enough on its own. A missing dependency, a typo in the CMake, or
-          # a runner without a compiler would all fail here too, and would look identical in
-          # a green tick. The message has to be the one this repository writes.
-          if ! grep -q "interactor-cineform is x86_64 only" configure.log; then
-            echo "FAIL configure failed for some OTHER reason than the architecture guard:"
-            cat configure.log
-            exit 1
-          fi
-          echo "ok  refused, with the codec named as the reason:"
-          grep -A3 "interactor-cineform is x86_64 only" configure.log
+          set -eux
+          # uuid_generate lives in libSystem on macOS, so no package is installed here.
+          git clone --filter=blob:none --no-checkout https://github.com/v-sekai-fabric/contract-bus thirdparty/harness
+          git -C thirdparty/harness checkout b3acc3be2e00cc2fa25d9d325aa7935c187ea0a2
+          git clone --depth 1 --branch v1.6.1 https://github.com/laurencelundblade/QCBOR thirdparty/harness/libs/qcbor
+          git clone --filter=blob:none --no-checkout https://github.com/weftspun/cineform-sdk thirdparty/cineform-sdk
+          git -C thirdparty/cineform-sdk checkout 6869d78c350f78117dfd04e7a74348c440876cc7
+          git clone --filter=blob:none --no-checkout https://github.com/weftspun/libwebm thirdparty/libwebm
+          git -C thirdparty/libwebm checkout 6184f4484a826724b5293837134ab9492261b941
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+      - name: Build
+        run: cmake --build build --parallel
+      - name: The binary is arm64, and not by accident
+        run: |
+          set -eux
+          file build/interactor-cineform
+          file build/interactor-cineform | grep -q arm64
+          # Deployment target, not the host SDK. Built on a macOS 26 runner without this
+          # pinned, the binary would refuse to launch on 15 and below.
+          otool -l build/interactor-cineform | grep -A3 LC_BUILD_VERSION | grep minos
+      - name: Prove the wire agreement
+        run: ctest --test-dir build --output-on-failure
